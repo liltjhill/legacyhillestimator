@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+}
+
+model Settings {
+  id               String @id @default(cuid())
+  companyName      String @default("Your Company Name")
+  companyAddress   String @default("")
+  companyPhone     String @default("")
+  companyEmail     String @default("")
+  companyLicenseNo String @default("")
+  logoUrl          String?
+  defaultMarkupPct Decimal @default(20) @db.Decimal(6, 2)
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs Job[]
+}
+
+enum JobStatus {
+  DRAFT
+  SENT
+  WON
+  LOST
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  title       String
+  siteAddress String?
+  status      JobStatus @default(DRAFT)
+  markupPct   Decimal?  @db.Decimal(6, 2)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
+
+  siteVisits SiteVisit[]
+  scopeItems ScopeItem[]
+  estimates  Estimate[]
+
+  @@index([clientId])
+}
+
+enum TranscriptionStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+}
+
+model SiteVisit {
+  id                  String              @id @default(cuid())
+  audioUrl            String
+  audioFilename       String?
+  transcript          String?
+  transcriptionStatus TranscriptionStatus @default(PENDING)
+  transcriptionError  String?
+  recordedAt          DateTime?
+  createdAt           DateTime            @default(now())
+
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String
+
+  @@index([jobId])
+}
+
+model ScopeItem {
+  id          String   @id @default(cuid())
+  room        String?
+  description String
+  quantity    Decimal? @db.Decimal(10, 2)
+  unit        String?
+  category    String?
+  aiDrafted   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String
+
+  estimateLineItems EstimateLineItem[]
+
+  @@index([jobId])
+}
+
+model PriceListItem {
+  id           String   @id @default(cuid())
+  name         String
+  category     String?
+  unit         String
+  materialCost Decimal  @db.Decimal(10, 2)
+  laborCost    Decimal  @db.Decimal(10, 2)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  estimateLineItems EstimateLineItem[]
+
+  @@index([category])
+}
+
+model Estimate {
+  id          String   @id @default(cuid())
+  version     Int      @default(1)
+  materialSubtotal Decimal @default(0) @db.Decimal(12, 2)
+  laborSubtotal    Decimal @default(0) @db.Decimal(12, 2)
+  markupPct        Decimal @db.Decimal(6, 2)
+  total            Decimal @default(0) @db.Decimal(12, 2)
+  pdfUrl      String?
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String
+
+  lineItems EstimateLineItem[]
+
+  @@index([jobId])
+}
+
+model EstimateLineItem {
+  id             String   @id @default(cuid())
+  description    String
+  quantity       Decimal  @default(1) @db.Decimal(10, 2)
+  unit           String?
+  materialCost   Decimal  @db.Decimal(10, 2)
+  laborCost      Decimal  @db.Decimal(10, 2)
+  markupPct      Decimal  @db.Decimal(6, 2)
+  clientPrice    Decimal  @db.Decimal(12, 2)
+  aiEstimated    Boolean  @default(false)
+  aiConfidenceNote String?
+  sortOrder      Int      @default(0)
+
+  estimate   Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  estimateId String
+
+  scopeItem   ScopeItem? @relation(fields: [scopeItemId], references: [id])
+  scopeItemId String?
+
+  priceListItem   PriceListItem? @relation(fields: [priceListItemId], references: [id])
+  priceListItemId String?
+
+  @@index([estimateId])
+}
