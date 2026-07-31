@@ -24,8 +24,6 @@ Built so far:
 
 Not yet done:
 
-- Deployment (Vercel + hosted Postgres + Vercel Blob) — this has only been
-  run against a local dev database so far
 - Real company branding (logo, address, etc. — currently placeholders in Settings)
 
 ## Getting Started
@@ -67,7 +65,35 @@ Not yet done:
 - `npx prisma studio` — browse/edit the database directly
 - `npx prisma migrate dev --name <description>` — create a new migration after editing `prisma/schema.prisma`
 
-## Deployment
+## Deployment (Vercel)
 
-Designed to deploy to Vercel with a hosted Postgres database (e.g. Neon or
-Supabase) and Vercel Blob for audio file storage.
+1. **Import the repo**: in Vercel, "Add New" → "Project" → import
+   `liltjhill/legacyhillestimator`. It's a standard Next.js app, so the
+   framework preset auto-detects; leave Build Command on its default (it
+   picks up `npm run build`, which runs `prisma generate && prisma migrate
+   deploy && prisma db seed && next build` — migrations and the admin-user
+   seed happen automatically on every deploy, and both are safe to re-run).
+
+2. **Add Postgres**: Project → Storage → create a Postgres database (or
+   connect Neon/Supabase from the Marketplace). Whatever env var name the
+   integration creates, also add one named exactly `DATABASE_URL` with the
+   **pooled** connection string (not the direct one — serverless functions
+   open many short-lived connections, and node-postgres needs the pooler).
+
+3. **Add Blob storage**: Project → Storage → create a Blob store and
+   connect it to the project. This auto-injects `BLOB_READ_WRITE_TOKEN`.
+   This step isn't optional — without it, audio uploads write to local disk,
+   which doesn't exist/persist on Vercel's serverless filesystem.
+
+4. **Set the remaining environment variables** (Project → Settings →
+   Environment Variables): `SESSION_SECRET` (`openssl rand -base64 32`),
+   `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`,
+   `TRANSCRIPTION_API_KEY`.
+
+5. **Deploy**, then sign in at the deployed URL with
+   `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`.
+
+Audio uploads go straight from the browser to Vercel Blob (see
+`src/app/api/site-visit/blob-upload/route.ts`) rather than through a server
+action, since Vercel's serverless functions cap request bodies around
+4.5MB — well under what a multi-minute site-visit recording needs.

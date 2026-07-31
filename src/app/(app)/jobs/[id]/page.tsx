@@ -52,6 +52,7 @@ export default async function JobDetailPage({
       <div className="mt-8 space-y-10">
         <SiteVisitSection
           jobId={job.id}
+          blobConfigured={Boolean(process.env.BLOB_READ_WRITE_TOKEN)}
           siteVisits={job.siteVisits.map((v) => ({
             id: v.id,
             audioUrl: v.audioUrl,

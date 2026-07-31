@@ -1,7 +1,13 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { uploadSiteVisit, retryTranscription, updateTranscript } from "./site-visit-actions";
+import { upload } from "@vercel/blob/client";
+import {
+  uploadSiteVisit,
+  uploadSiteVisitFromBlob,
+  retryTranscription,
+  updateTranscript,
+} from "./site-visit-actions";
 
 type SiteVisit = {
   id: string;
@@ -19,46 +25,63 @@ const STATUS_LABEL: Record<SiteVisit["transcriptionStatus"], string> = {
   FAILED: "Transcription failed",
 };
 
-export function SiteVisitSection({ jobId, siteVisits }: { jobId: string; siteVisits: SiteVisit[] }) {
-  const formRef = useRef<HTMLFormElement>(null);
+export function SiteVisitSection({
+  jobId,
+  siteVisits,
+  blobConfigured,
+}: {
+  jobId: string;
+  siteVisits: SiteVisit[];
+  blobConfigured: boolean;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, startUploading] = useTransition();
   const [uploadError, setUploadError] = useState<string | null>(null);
   const latest = siteVisits[siteVisits.length - 1];
+
+  function handleUploadClick() {
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) {
+      setUploadError("Choose an audio file to upload.");
+      return;
+    }
+
+    setUploadError(null);
+    startUploading(async () => {
+      try {
+        if (blobConfigured) {
+          const blob = await upload(`${jobId}/${crypto.randomUUID()}-${file.name}`, file, {
+            access: "public",
+            handleUploadUrl: "/api/site-visit/blob-upload",
+          });
+          await uploadSiteVisitFromBlob(jobId, blob.url, file.name);
+        } else {
+          const formData = new FormData();
+          formData.set("audio", file);
+          await uploadSiteVisit(jobId, formData);
+        }
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : "Upload failed.");
+      }
+    });
+  }
 
   return (
     <div>
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Site visit</h2>
 
-      <form
-        ref={formRef}
-        action={(formData) => {
-          setUploadError(null);
-          startUploading(async () => {
-            try {
-              await uploadSiteVisit(jobId, formData);
-              formRef.current?.reset();
-            } catch (error) {
-              setUploadError(error instanceof Error ? error.message : "Upload failed.");
-            }
-          });
-        }}
-        className="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-zinc-300 p-3 dark:border-zinc-700"
-      >
-        <input
-          type="file"
-          name="audio"
-          accept="audio/*"
-          required
-          className="text-sm"
-        />
+      <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-zinc-300 p-3 dark:border-zinc-700">
+        <input ref={fileInputRef} type="file" accept="audio/*" required className="text-sm" />
         <button
-          type="submit"
+          type="button"
           disabled={isUploading}
+          onClick={handleUploadClick}
           className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
           {isUploading ? "Uploading & transcribing…" : "Upload recording"}
         </button>
-      </form>
+      </div>
       {uploadError && <p className="mt-1 text-xs text-red-600">{uploadError}</p>}
 
       {siteVisits.length === 0 ? (

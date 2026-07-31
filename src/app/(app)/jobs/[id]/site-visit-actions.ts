@@ -8,30 +8,22 @@ import { transcribeAudio } from "@/lib/transcription";
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // OpenAI's transcription API limit
 
-export async function uploadSiteVisit(jobId: string, formData: FormData) {
-  await verifySession();
-
-  const file = formData.get("audio");
-  if (!(file instanceof File) || file.size === 0) {
-    throw new Error("Choose an audio file to upload.");
-  }
-  if (file.size > MAX_AUDIO_BYTES) {
-    throw new Error("Audio file is larger than the 25MB transcription limit.");
-  }
-
-  const { url, filename } = await saveAudioFile(jobId, file);
-
+async function createSiteVisitAndTranscribe(
+  jobId: string,
+  audioUrl: string,
+  filename: string,
+) {
   const siteVisit = await prisma.siteVisit.create({
     data: {
       jobId,
-      audioUrl: url,
+      audioUrl,
       audioFilename: filename,
       transcriptionStatus: "PROCESSING",
     },
   });
 
   try {
-    const buffer = await readAudioFile(url);
+    const buffer = await readAudioFile(audioUrl);
     const transcript = await transcribeAudio(buffer, filename);
     await prisma.siteVisit.update({
       where: { id: siteVisit.id },
@@ -48,6 +40,33 @@ export async function uploadSiteVisit(jobId: string, formData: FormData) {
   }
 
   revalidatePath(`/jobs/${jobId}`);
+}
+
+/**
+ * Local-dev upload path: the audio file travels through the server action's
+ * own request body. Vercel's serverless functions cap request bodies well
+ * below what a multi-minute recording needs, so production uploads instead
+ * go directly from the browser to Vercel Blob (see `uploadSiteVisitFromBlob`
+ * and `/api/site-visit/blob-upload`).
+ */
+export async function uploadSiteVisit(jobId: string, formData: FormData) {
+  await verifySession();
+
+  const file = formData.get("audio");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Choose an audio file to upload.");
+  }
+  if (file.size > MAX_AUDIO_BYTES) {
+    throw new Error("Audio file is larger than the 25MB transcription limit.");
+  }
+
+  const { url, filename } = await saveAudioFile(jobId, file);
+  await createSiteVisitAndTranscribe(jobId, url, filename);
+}
+
+export async function uploadSiteVisitFromBlob(jobId: string, audioUrl: string, filename: string) {
+  await verifySession();
+  await createSiteVisitAndTranscribe(jobId, audioUrl, filename);
 }
 
 export async function retryTranscription(jobId: string, siteVisitId: string) {
