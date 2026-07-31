@@ -11,6 +11,12 @@ import { transcribeAudio } from "@/lib/transcription";
 // what let this get killed mid-transcription before.
 export const maxDuration = 300;
 
+// OpenAI's transcription API hard limit. Enforced here rather than at
+// upload/storage time, so a recording that's too big to transcribe can
+// still be uploaded and stored - it just needs to be trimmed before it'll
+// transcribe successfully.
+const MAX_TRANSCRIBABLE_BYTES = 25 * 1024 * 1024;
+
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) {
@@ -25,6 +31,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   try {
     const buffer = await readAudioFile(siteVisit.audioUrl);
+
+    if (buffer.byteLength > MAX_TRANSCRIBABLE_BYTES) {
+      const mb = (buffer.byteLength / (1024 * 1024)).toFixed(1);
+      throw new Error(
+        `This recording is ${mb}MB, which is over OpenAI's 25MB transcription limit. ` +
+          `Trim it or split it into shorter parts and upload those instead.`,
+      );
+    }
+
     const transcript = await transcribeAudio(buffer, siteVisit.audioFilename ?? "recording");
     await prisma.siteVisit.update({
       where: { id },

@@ -23,7 +23,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       onBeforeGenerateToken: async () => ({
         allowedContentTypes: ["audio/*"],
         addRandomSuffix: true,
-        maximumSizeInBytes: 25 * 1024 * 1024,
+        // This is a Blob storage ceiling, not OpenAI's transcription limit -
+        // don't conflate the two. Whisper's 25MB cap is enforced later, at
+        // transcription time, so a longer recording can still be uploaded
+        // and stored even if it needs to be trimmed before it can be
+        // transcribed.
+        maximumSizeInBytes: 200 * 1024 * 1024,
       }),
     });
 

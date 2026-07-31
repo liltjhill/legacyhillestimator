@@ -5,8 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/dal";
 import { saveAudioFile } from "@/lib/storage";
 
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // OpenAI's transcription API limit
-
 async function createPendingSiteVisit(jobId: string, audioUrl: string, filename: string) {
   const siteVisit = await prisma.siteVisit.create({
     data: {
@@ -28,7 +26,10 @@ async function createPendingSiteVisit(jobId: string, audioUrl: string, filename:
  * go directly from the browser to Vercel Blob (see `uploadSiteVisitFromBlob`
  * and `/api/site-visit/blob-upload`). Either way, this only creates the row
  * - the caller is responsible for triggering `/api/site-visit/[id]/transcribe`
- * as its own request so transcription gets a dedicated time budget.
+ * as its own request so transcription gets a dedicated time budget. A file
+ * over OpenAI's 25MB transcription limit can still be uploaded and stored;
+ * that limit is enforced at transcription time instead, with a clearer
+ * message than blocking the upload outright would give.
  */
 export async function uploadSiteVisit(jobId: string, formData: FormData) {
   await verifySession();
@@ -36,9 +37,6 @@ export async function uploadSiteVisit(jobId: string, formData: FormData) {
   const file = formData.get("audio");
   if (!(file instanceof File) || file.size === 0) {
     throw new Error("Choose an audio file to upload.");
-  }
-  if (file.size > MAX_AUDIO_BYTES) {
-    throw new Error("Audio file is larger than the 25MB transcription limit.");
   }
 
   const { url, filename } = await saveAudioFile(jobId, file);
