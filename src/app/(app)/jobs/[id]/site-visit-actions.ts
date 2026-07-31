@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/dal";
@@ -8,11 +9,40 @@ import { transcribeAudio } from "@/lib/transcription";
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // OpenAI's transcription API limit
 
-async function createSiteVisitAndTranscribe(
+/**
+ * Does the actual OpenAI call and writes the result. Scheduled via `after()`
+ * so it runs after the response is sent - transcribing a multi-minute
+ * recording can take longer than a request/response cycle should block on,
+ * and doing it inline risked the serverless function being killed mid-call,
+ * leaving the row stuck in PROCESSING forever with no way to recover.
+ */
+async function runTranscription(
+  siteVisitId: string,
   jobId: string,
   audioUrl: string,
   filename: string,
 ) {
+  try {
+    const buffer = await readAudioFile(audioUrl);
+    const transcript = await transcribeAudio(buffer, filename);
+    await prisma.siteVisit.update({
+      where: { id: siteVisitId },
+      data: { transcript, transcriptionStatus: "COMPLETE" },
+    });
+  } catch (error) {
+    await prisma.siteVisit.update({
+      where: { id: siteVisitId },
+      data: {
+        transcriptionStatus: "FAILED",
+        transcriptionError: error instanceof Error ? error.message : "Unknown error",
+      },
+    });
+  }
+
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+async function createSiteVisitAndTranscribe(jobId: string, audioUrl: string, filename: string) {
   const siteVisit = await prisma.siteVisit.create({
     data: {
       jobId,
@@ -22,22 +52,7 @@ async function createSiteVisitAndTranscribe(
     },
   });
 
-  try {
-    const buffer = await readAudioFile(audioUrl);
-    const transcript = await transcribeAudio(buffer, filename);
-    await prisma.siteVisit.update({
-      where: { id: siteVisit.id },
-      data: { transcript, transcriptionStatus: "COMPLETE" },
-    });
-  } catch (error) {
-    await prisma.siteVisit.update({
-      where: { id: siteVisit.id },
-      data: {
-        transcriptionStatus: "FAILED",
-        transcriptionError: error instanceof Error ? error.message : "Unknown error",
-      },
-    });
-  }
+  after(() => runTranscription(siteVisit.id, jobId, audioUrl, filename));
 
   revalidatePath(`/jobs/${jobId}`);
 }
@@ -79,22 +94,9 @@ export async function retryTranscription(jobId: string, siteVisitId: string) {
     data: { transcriptionStatus: "PROCESSING", transcriptionError: null },
   });
 
-  try {
-    const buffer = await readAudioFile(siteVisit.audioUrl);
-    const transcript = await transcribeAudio(buffer, siteVisit.audioFilename ?? "recording");
-    await prisma.siteVisit.update({
-      where: { id: siteVisitId },
-      data: { transcript, transcriptionStatus: "COMPLETE" },
-    });
-  } catch (error) {
-    await prisma.siteVisit.update({
-      where: { id: siteVisitId },
-      data: {
-        transcriptionStatus: "FAILED",
-        transcriptionError: error instanceof Error ? error.message : "Unknown error",
-      },
-    });
-  }
+  after(() =>
+    runTranscription(siteVisitId, jobId, siteVisit.audioUrl, siteVisit.audioFilename ?? "recording"),
+  );
 
   revalidatePath(`/jobs/${jobId}`);
 }

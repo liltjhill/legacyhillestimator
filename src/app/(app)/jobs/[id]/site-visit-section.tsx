@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import {
   uploadSiteVisit,
@@ -38,6 +39,17 @@ export function SiteVisitSection({
   const [isUploading, startUploading] = useTransition();
   const [uploadError, setUploadError] = useState<string | null>(null);
   const latest = siteVisits[siteVisits.length - 1];
+  const router = useRouter();
+
+  const anyProcessing = siteVisits.some(
+    (v) => v.transcriptionStatus === "PENDING" || v.transcriptionStatus === "PROCESSING",
+  );
+
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const interval = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(interval);
+  }, [anyProcessing, router]);
 
   function handleUploadClick() {
     const file = fileInputRef.current?.files?.[0];
@@ -125,11 +137,16 @@ function SiteVisitCard({ jobId, visit }: { jobId: string; visit: SiteVisit }) {
           >
             {STATUS_LABEL[visit.transcriptionStatus]}
           </span>
-          {visit.transcriptionStatus === "FAILED" && (
+          {visit.transcriptionStatus !== "COMPLETE" && (
             <button
               disabled={isRetrying}
               onClick={() => startRetrying(() => retryTranscription(jobId, visit.id))}
               className="text-xs text-zinc-500 underline hover:text-zinc-900 dark:hover:text-zinc-200"
+              title={
+                visit.transcriptionStatus === "PROCESSING"
+                  ? "Stuck? This restarts the transcription."
+                  : undefined
+              }
             >
               {isRetrying ? "Retrying…" : "Retry"}
             </button>
