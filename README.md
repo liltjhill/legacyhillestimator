@@ -14,12 +14,19 @@ Built so far:
 - Price List CRUD (your material + labor cost catalog)
 - Client/Job creation and a Jobs dashboard
 - Settings (company info + default markup %)
+- Site-visit audio upload + transcription (OpenAI Whisper), with a manual
+  transcript editor as a fallback/correction path
+- AI scope-of-work drafting from a transcript (Claude), editable before pricing
+- Pricing engine: matches scope items to your price list, falls back to an
+  AI cost estimate (clearly flagged "AI-estimated — verify") when there's no
+  catalog match, applies markup %
+- Branded PDF estimate export + "mark as sent" status tracking
 
-Not yet built (needs API keys you provide — see below):
+Not yet done:
 
-- Site-visit audio upload + transcription
-- AI scope-of-work drafting from a transcript
-- Pricing engine (price-list lookup + AI fallback) and branded PDF export
+- Deployment (Vercel + hosted Postgres + Vercel Blob) — this has only been
+  run against a local dev database so far
+- Real company branding (logo, address, etc. — currently placeholders in Settings)
 
 ## Getting Started
 

@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { StatusSelect } from "./status-select";
+import { SiteVisitSection } from "./site-visit-section";
+import { ScopeSection } from "./scope-section";
+import { EstimateSection } from "./estimate-section";
 
 export default async function JobDetailPage({
   params,
@@ -12,10 +15,22 @@ export default async function JobDetailPage({
 
   const job = await prisma.job.findUnique({
     where: { id },
-    include: { client: true, siteVisits: true, scopeItems: true, estimates: true },
+    include: {
+      client: true,
+      siteVisits: { orderBy: { createdAt: "asc" } },
+      scopeItems: { orderBy: { sortOrder: "asc" } },
+      estimates: {
+        orderBy: { version: "desc" },
+        take: 1,
+        include: { lineItems: { orderBy: { sortOrder: "asc" } } },
+      },
+    },
   });
 
   if (!job) notFound();
+
+  const latestSiteVisit = job.siteVisits[job.siteVisits.length - 1];
+  const latestEstimate = job.estimates[0];
 
   return (
     <div>
@@ -34,45 +49,64 @@ export default async function JobDetailPage({
         <StatusSelect jobId={job.id} status={job.status} />
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
-        <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Site visit</h2>
-          <p className="mt-1 text-xs text-zinc-500">
-            {job.siteVisits.length > 0
-              ? `${job.siteVisits.length} recording(s) uploaded.`
-              : "Upload your recorded walkthrough here to transcribe it."}
-          </p>
-          <p className="mt-3 text-xs text-zinc-400">
-            Coming next: audio upload + transcription (needs a transcription API key).
-          </p>
-        </section>
+      <div className="mt-8 space-y-10">
+        <SiteVisitSection
+          jobId={job.id}
+          siteVisits={job.siteVisits.map((v) => ({
+            id: v.id,
+            audioUrl: v.audioUrl,
+            audioFilename: v.audioFilename,
+            transcript: v.transcript,
+            transcriptionStatus: v.transcriptionStatus,
+            transcriptionError: v.transcriptionError,
+          }))}
+        />
 
-        <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Scope of work</h2>
-          <p className="mt-1 text-xs text-zinc-500">
-            {job.scopeItems.length > 0
-              ? `${job.scopeItems.length} scope item(s) drafted.`
-              : "AI drafts a scope from the transcript for you to review and edit."}
-          </p>
-          <p className="mt-3 text-xs text-zinc-400">
-            Coming next: AI scope drafting (needs an Anthropic API key).
-          </p>
-        </section>
+        <ScopeSection
+          jobId={job.id}
+          scopeItems={job.scopeItems.map((s) => ({
+            id: s.id,
+            room: s.room,
+            description: s.description,
+            quantity: s.quantity ? Number(s.quantity) : null,
+            unit: s.unit,
+            category: s.category,
+            aiDrafted: s.aiDrafted,
+          }))}
+          transcript={latestSiteVisit?.transcript ?? null}
+        />
 
-        <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Estimate</h2>
-          <p className="mt-1 text-xs text-zinc-500">
-            {job.estimates.length > 0
-              ? `${job.estimates.length} estimate version(s).`
-              : "Priced line items and a branded PDF, ready to send."}
-          </p>
-          <p className="mt-3 text-xs text-zinc-400">
-            Coming next: pricing engine + PDF export.
-          </p>
-        </section>
+        <EstimateSection
+          jobId={job.id}
+          scopeItemCount={job.scopeItems.length}
+          latestEstimate={
+            latestEstimate
+              ? {
+                  id: latestEstimate.id,
+                  version: latestEstimate.version,
+                  materialSubtotal: Number(latestEstimate.materialSubtotal),
+                  laborSubtotal: Number(latestEstimate.laborSubtotal),
+                  total: Number(latestEstimate.total),
+                  sentAt: latestEstimate.sentAt,
+                  lineItems: latestEstimate.lineItems.map((item) => ({
+                    id: item.id,
+                    description: item.description,
+                    quantity: Number(item.quantity),
+                    unit: item.unit,
+                    materialCost: Number(item.materialCost),
+                    laborCost: Number(item.laborCost),
+                    markupPct: Number(item.markupPct),
+                    clientPrice: Number(item.clientPrice),
+                    aiEstimated: item.aiEstimated,
+                    aiConfidenceNote: item.aiConfidenceNote,
+                  })),
+                }
+              : null
+          }
+        />
       </div>
 
-      <div className="mt-8 rounded-lg border border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-800">
+      <div className="mt-10 rounded-lg border border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-800">
         <p className="font-medium text-zinc-700 dark:text-zinc-300">Client details</p>
         <p className="mt-1">{job.client.email ?? "No email on file"}</p>
         <p>{job.client.phone ?? "No phone on file"}</p>

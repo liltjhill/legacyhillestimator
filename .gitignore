@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local site-visit audio storage (dev only - production uses Vercel Blob)
+/uploads
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
