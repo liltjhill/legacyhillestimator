@@ -54,6 +54,7 @@ export function SiteVisitSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, startUploading] = useTransition();
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const latest = siteVisits[siteVisits.length - 1];
   const router = useRouter();
 
@@ -75,24 +76,41 @@ export function SiteVisitSection({
     }
 
     setUploadError(null);
+    setUploadProgress(blobConfigured ? 0 : null);
     startUploading(async () => {
+      // Belt-and-suspenders: nothing below should be able to hang forever
+      // silently. If it does anyway, this surfaces an error instead of
+      // leaving the button stuck with no feedback.
+      const overallTimeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Upload timed out after 3 minutes. Check your connection and try again.")), 3 * 60 * 1000);
+      });
+
       try {
-        let siteVisitId: string;
-        if (blobConfigured) {
-          const blob = await upload(`${jobId}/${crypto.randomUUID()}-${file.name}`, file, {
-            access: "public",
-            handleUploadUrl: "/api/site-visit/blob-upload",
-          });
-          siteVisitId = await uploadSiteVisitFromBlob(jobId, blob.url, file.name);
-        } else {
-          const formData = new FormData();
-          formData.set("audio", file);
-          siteVisitId = await uploadSiteVisit(jobId, formData);
-        }
-        triggerTranscription(siteVisitId);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        await Promise.race([
+          (async () => {
+            let siteVisitId: string;
+            if (blobConfigured) {
+              const blob = await upload(`${jobId}/${crypto.randomUUID()}-${file.name}`, file, {
+                access: "public",
+                handleUploadUrl: "/api/site-visit/blob-upload",
+                abortSignal: AbortSignal.timeout(2 * 60 * 1000),
+                onUploadProgress: ({ percentage }) => setUploadProgress(percentage),
+              });
+              siteVisitId = await uploadSiteVisitFromBlob(jobId, blob.url, file.name);
+            } else {
+              const formData = new FormData();
+              formData.set("audio", file);
+              siteVisitId = await uploadSiteVisit(jobId, formData);
+            }
+            triggerTranscription(siteVisitId);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          })(),
+          overallTimeout,
+        ]);
       } catch (error) {
         setUploadError(error instanceof Error ? error.message : "Upload failed.");
+      } finally {
+        setUploadProgress(null);
       }
     });
   }
@@ -109,7 +127,11 @@ export function SiteVisitSection({
           onClick={handleUploadClick}
           className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
-          {isUploading ? "Uploading & transcribing…" : "Upload recording"}
+          {isUploading
+            ? uploadProgress !== null
+              ? `Uploading… ${Math.round(uploadProgress)}%`
+              : "Uploading…"
+            : "Upload recording"}
         </button>
       </div>
       {uploadError && <p className="mt-1 text-xs text-red-600">{uploadError}</p>}
