@@ -80,9 +80,14 @@ export function SiteVisitSection({
     startUploading(async () => {
       // Belt-and-suspenders: nothing below should be able to hang forever
       // silently. If it does anyway, this surfaces an error instead of
-      // leaving the button stuck with no feedback.
+      // leaving the button stuck with no feedback. Set generously - a real
+      // upload finishing sending bytes (100% in the progress bar) still has
+      // to wait for the server to finish processing/finalizing the blob,
+      // which can legitimately take a while for a larger file. A tighter
+      // client-imposed abort here was aborting in-flight uploads right as
+      // they were finishing, forcing a full restart-from-scratch retry.
       const overallTimeout = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Upload timed out after 3 minutes. Check your connection and try again.")), 3 * 60 * 1000);
+        setTimeout(() => reject(new Error("Upload timed out after 10 minutes. Check your connection and try again.")), 10 * 60 * 1000);
       });
 
       try {
@@ -93,7 +98,6 @@ export function SiteVisitSection({
               const blob = await upload(`${jobId}/${crypto.randomUUID()}-${file.name}`, file, {
                 access: "public",
                 handleUploadUrl: "/api/site-visit/blob-upload",
-                abortSignal: AbortSignal.timeout(2 * 60 * 1000),
                 onUploadProgress: ({ percentage }) => setUploadProgress(percentage),
               });
               siteVisitId = await uploadSiteVisitFromBlob(jobId, blob.url, file.name);
