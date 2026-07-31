@@ -1,48 +1,13 @@
 "use server";
 
-import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/dal";
-import { saveAudioFile, readAudioFile } from "@/lib/storage";
-import { transcribeAudio } from "@/lib/transcription";
+import { saveAudioFile } from "@/lib/storage";
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // OpenAI's transcription API limit
 
-/**
- * Does the actual OpenAI call and writes the result. Scheduled via `after()`
- * so it runs after the response is sent - transcribing a multi-minute
- * recording can take longer than a request/response cycle should block on,
- * and doing it inline risked the serverless function being killed mid-call,
- * leaving the row stuck in PROCESSING forever with no way to recover.
- */
-async function runTranscription(
-  siteVisitId: string,
-  jobId: string,
-  audioUrl: string,
-  filename: string,
-) {
-  try {
-    const buffer = await readAudioFile(audioUrl);
-    const transcript = await transcribeAudio(buffer, filename);
-    await prisma.siteVisit.update({
-      where: { id: siteVisitId },
-      data: { transcript, transcriptionStatus: "COMPLETE" },
-    });
-  } catch (error) {
-    await prisma.siteVisit.update({
-      where: { id: siteVisitId },
-      data: {
-        transcriptionStatus: "FAILED",
-        transcriptionError: error instanceof Error ? error.message : "Unknown error",
-      },
-    });
-  }
-
-  revalidatePath(`/jobs/${jobId}`);
-}
-
-async function createSiteVisitAndTranscribe(jobId: string, audioUrl: string, filename: string) {
+async function createPendingSiteVisit(jobId: string, audioUrl: string, filename: string) {
   const siteVisit = await prisma.siteVisit.create({
     data: {
       jobId,
@@ -52,9 +17,8 @@ async function createSiteVisitAndTranscribe(jobId: string, audioUrl: string, fil
     },
   });
 
-  after(() => runTranscription(siteVisit.id, jobId, audioUrl, filename));
-
   revalidatePath(`/jobs/${jobId}`);
+  return siteVisit.id;
 }
 
 /**
@@ -62,7 +26,9 @@ async function createSiteVisitAndTranscribe(jobId: string, audioUrl: string, fil
  * own request body. Vercel's serverless functions cap request bodies well
  * below what a multi-minute recording needs, so production uploads instead
  * go directly from the browser to Vercel Blob (see `uploadSiteVisitFromBlob`
- * and `/api/site-visit/blob-upload`).
+ * and `/api/site-visit/blob-upload`). Either way, this only creates the row
+ * - the caller is responsible for triggering `/api/site-visit/[id]/transcribe`
+ * as its own request so transcription gets a dedicated time budget.
  */
 export async function uploadSiteVisit(jobId: string, formData: FormData) {
   await verifySession();
@@ -76,29 +42,24 @@ export async function uploadSiteVisit(jobId: string, formData: FormData) {
   }
 
   const { url, filename } = await saveAudioFile(jobId, file);
-  await createSiteVisitAndTranscribe(jobId, url, filename);
+  return createPendingSiteVisit(jobId, url, filename);
 }
 
 export async function uploadSiteVisitFromBlob(jobId: string, audioUrl: string, filename: string) {
   await verifySession();
-  await createSiteVisitAndTranscribe(jobId, audioUrl, filename);
+  return createPendingSiteVisit(jobId, audioUrl, filename);
 }
 
 export async function retryTranscription(jobId: string, siteVisitId: string) {
   await verifySession();
-
-  const siteVisit = await prisma.siteVisit.findUniqueOrThrow({ where: { id: siteVisitId } });
 
   await prisma.siteVisit.update({
     where: { id: siteVisitId },
     data: { transcriptionStatus: "PROCESSING", transcriptionError: null },
   });
 
-  after(() =>
-    runTranscription(siteVisitId, jobId, siteVisit.audioUrl, siteVisit.audioFilename ?? "recording"),
-  );
-
   revalidatePath(`/jobs/${jobId}`);
+  return siteVisitId;
 }
 
 export async function updateTranscript(siteVisitId: string, formData: FormData) {

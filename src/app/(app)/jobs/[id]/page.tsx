@@ -6,9 +6,9 @@ import { SiteVisitSection } from "./site-visit-section";
 import { ScopeSection } from "./scope-section";
 import { EstimateSection } from "./estimate-section";
 
-// Transcription runs in the background via `after()` after the upload
-// action responds; this raises the ceiling on how long that background work
-// (including for Server Actions used on this page) is allowed to run.
+// Headroom for this page's Server Actions that call the Anthropic API
+// synchronously (scope drafting, pricing) - not related to transcription,
+// which now runs in its own route with its own maxDuration.
 export const maxDuration = 60;
 
 export default async function JobDetailPage({

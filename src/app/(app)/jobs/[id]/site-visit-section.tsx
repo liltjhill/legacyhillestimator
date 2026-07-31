@@ -26,6 +26,22 @@ const STATUS_LABEL: Record<SiteVisit["transcriptionStatus"], string> = {
   FAILED: "Transcription failed",
 };
 
+/**
+ * Fires the transcription request and deliberately does not await it - the
+ * browser keeps this request alive independently of our component's
+ * lifecycle, so it isn't bound by how long the upload/retry action itself
+ * took. Progress shows up via the polling in SiteVisitSection, not this
+ * call's response.
+ */
+function triggerTranscription(siteVisitId: string) {
+  fetch(`/api/site-visit/${siteVisitId}/transcribe`, { method: "POST", keepalive: true }).catch(
+    () => {
+      // Ignored: if this fetch itself fails to even go out, the row stays
+      // PROCESSING and the user can hit Retry, which fires it again.
+    },
+  );
+}
+
 export function SiteVisitSection({
   jobId,
   siteVisits,
@@ -61,17 +77,19 @@ export function SiteVisitSection({
     setUploadError(null);
     startUploading(async () => {
       try {
+        let siteVisitId: string;
         if (blobConfigured) {
           const blob = await upload(`${jobId}/${crypto.randomUUID()}-${file.name}`, file, {
             access: "public",
             handleUploadUrl: "/api/site-visit/blob-upload",
           });
-          await uploadSiteVisitFromBlob(jobId, blob.url, file.name);
+          siteVisitId = await uploadSiteVisitFromBlob(jobId, blob.url, file.name);
         } else {
           const formData = new FormData();
           formData.set("audio", file);
-          await uploadSiteVisit(jobId, formData);
+          siteVisitId = await uploadSiteVisit(jobId, formData);
         }
+        triggerTranscription(siteVisitId);
         if (fileInputRef.current) fileInputRef.current.value = "";
       } catch (error) {
         setUploadError(error instanceof Error ? error.message : "Upload failed.");
@@ -140,7 +158,12 @@ function SiteVisitCard({ jobId, visit }: { jobId: string; visit: SiteVisit }) {
           {visit.transcriptionStatus !== "COMPLETE" && (
             <button
               disabled={isRetrying}
-              onClick={() => startRetrying(() => retryTranscription(jobId, visit.id))}
+              onClick={() =>
+                startRetrying(async () => {
+                  const siteVisitId = await retryTranscription(jobId, visit.id);
+                  triggerTranscription(siteVisitId);
+                })
+              }
               className="text-xs text-zinc-500 underline hover:text-zinc-900 dark:hover:text-zinc-200"
               title={
                 visit.transcriptionStatus === "PROCESSING"
