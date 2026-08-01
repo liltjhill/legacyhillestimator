@@ -19,6 +19,23 @@ const styles = StyleSheet.create({
   colQty: { flex: 1, textAlign: "right" },
   colPrice: { flex: 1.3, textAlign: "right" },
   aiNote: { color: "#a15c00", fontSize: 8, marginTop: 2 },
+  costCodeGroup: { marginTop: 14 },
+  costCodeHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    backgroundColor: "#f2f2f2",
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  costCodeHeaderLabel: { fontWeight: 700, fontSize: 10 },
+  costCodeSubtotalRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingTop: 4,
+    paddingRight: 4,
+  },
+  costCodeSubtotalLabel: { color: "#555", marginRight: 6 },
+  costCodeSubtotalValue: { fontWeight: 700 },
   totalsBlock: { marginTop: 16, alignSelf: "flex-end", width: 220 },
   totalsRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
   totalsLabel: { color: "#555" },
@@ -62,10 +79,32 @@ export type EstimatePdfProps = {
     unit: string | null;
     clientPrice: number;
     aiEstimated: boolean;
+    costCode: string | null;
   }>;
 };
 
+const UNCATEGORIZED_LABEL = "Uncategorized";
+
+function groupByCostCode(lineItems: EstimatePdfProps["lineItems"]) {
+  const groups = new Map<string, EstimatePdfProps["lineItems"]>();
+  for (const item of lineItems) {
+    const key = item.costCode?.trim() || UNCATEGORIZED_LABEL;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.push(item);
+    } else {
+      groups.set(key, [item]);
+    }
+  }
+  return Array.from(groups.entries()).map(([costCode, items]) => ({
+    costCode,
+    items,
+    subtotal: items.reduce((sum, item) => sum + item.clientPrice, 0),
+  }));
+}
+
 export function EstimatePdf({ company, job, client, estimate, lineItems }: EstimatePdfProps) {
+  const groups = groupByCostCode(lineItems);
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
@@ -99,24 +138,35 @@ export function EstimatePdf({ company, job, client, estimate, lineItems }: Estim
         </View>
 
         <View style={styles.table}>
-          <View style={styles.tableHeaderRow}>
-            <Text style={styles.colDescription}>Description</Text>
-            <Text style={styles.colQty}>Qty</Text>
-            <Text style={styles.colPrice}>Price</Text>
-          </View>
-          {lineItems.map((item, index) => (
-            <View style={styles.tableRow} key={index}>
-              <View style={styles.colDescription}>
-                <Text>{item.description}</Text>
-                {item.aiEstimated ? (
-                  <Text style={styles.aiNote}>AI-estimated cost</Text>
-                ) : null}
+          {groups.map((group) => (
+            <View key={group.costCode} style={styles.costCodeGroup} wrap={false}>
+              <View style={styles.costCodeHeaderRow}>
+                <Text style={styles.costCodeHeaderLabel}>{group.costCode}</Text>
               </View>
-              <Text style={styles.colQty}>
-                {item.quantity}
-                {item.unit ? ` ${item.unit}` : ""}
-              </Text>
-              <Text style={styles.colPrice}>{money(item.clientPrice)}</Text>
+              <View style={styles.tableHeaderRow}>
+                <Text style={styles.colDescription}>Description</Text>
+                <Text style={styles.colQty}>Qty</Text>
+                <Text style={styles.colPrice}>Price</Text>
+              </View>
+              {group.items.map((item, index) => (
+                <View style={styles.tableRow} key={index}>
+                  <View style={styles.colDescription}>
+                    <Text>{item.description}</Text>
+                    {item.aiEstimated ? (
+                      <Text style={styles.aiNote}>AI-estimated cost</Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.colQty}>
+                    {item.quantity}
+                    {item.unit ? ` ${item.unit}` : ""}
+                  </Text>
+                  <Text style={styles.colPrice}>{money(item.clientPrice)}</Text>
+                </View>
+              ))}
+              <View style={styles.costCodeSubtotalRow}>
+                <Text style={styles.costCodeSubtotalLabel}>{group.costCode} subtotal</Text>
+                <Text style={styles.costCodeSubtotalValue}>{money(group.subtotal)}</Text>
+              </View>
             </View>
           ))}
         </View>

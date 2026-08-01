@@ -16,7 +16,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     where: { id },
     include: {
       job: { include: { client: true } },
-      lineItems: { orderBy: { sortOrder: "asc" } },
+      lineItems: {
+        orderBy: { sortOrder: "asc" },
+        include: { scopeItem: true, priceListItem: true },
+      },
     },
   });
 
@@ -54,6 +57,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         unit: item.unit,
         clientPrice: Number(item.clientPrice),
         aiEstimated: item.aiEstimated,
+        costCode: item.scopeItem?.category ?? item.priceListItem?.category ?? null,
       }))}
     />,
   );
