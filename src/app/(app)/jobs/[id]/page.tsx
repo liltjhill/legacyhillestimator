@@ -57,7 +57,17 @@ export default async function JobDetailPage({
       <div className="mt-8 space-y-10">
         <SiteVisitSection
           jobId={job.id}
-          blobConfigured={Boolean(process.env.BLOB_READ_WRITE_TOKEN)}
+          // TEMPORARY: forcing the server-action upload path (file travels
+          // through our own server, which still stores it in Blob via
+          // put() server-side) instead of the browser-to-Blob direct
+          // client upload. The client-side upload was hanging
+          // indefinitely even for a tiny (~1MB) file with no error and no
+          // request ever reaching our server, which points at something
+          // wrong in the browser-side Blob SDK interaction that isn't
+          // diagnosable without direct devtools access. This path is
+          // simpler and fully visible in our own server logs. Worth
+          // revisiting for very large recordings later.
+          blobConfigured={false}
           siteVisits={job.siteVisits.map((v) => ({
             id: v.id,
             audioUrl: v.audioUrl,
