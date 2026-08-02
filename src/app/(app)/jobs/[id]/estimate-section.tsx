@@ -15,6 +15,7 @@ type LineItem = {
   clientPrice: number;
   aiEstimated: boolean;
   aiConfidenceNote: string | null;
+  needsMeasurement: boolean;
 };
 
 type Estimate = {
@@ -72,6 +73,12 @@ export function EstimateSection({
 
       {latestEstimate && (
         <div className="mt-3">
+          {latestEstimate.lineItems.some((item) => item.needsMeasurement) && (
+            <p className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+              Some line items are missing a quantity and are priced at $0 until you add a real
+              measurement - look for the &quot;Needs measurement&quot; tag below.
+            </p>
+          )}
           <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
             <table className="w-full min-w-[560px] text-left">
               <thead className="bg-zinc-50 dark:bg-zinc-900">

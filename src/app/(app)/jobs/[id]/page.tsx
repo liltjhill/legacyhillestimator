@@ -115,6 +115,7 @@ export default async function JobDetailPage({
                     clientPrice: Number(item.clientPrice),
                     aiEstimated: item.aiEstimated,
                     aiConfidenceNote: item.aiConfidenceNote,
+                    needsMeasurement: item.needsMeasurement,
                   })),
                 }
               : null

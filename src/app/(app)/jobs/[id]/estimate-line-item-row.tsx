@@ -14,6 +14,7 @@ type LineItem = {
   clientPrice: number;
   aiEstimated: boolean;
   aiConfidenceNote: string | null;
+  needsMeasurement: boolean;
 };
 
 export function EstimateLineItemRow({
@@ -115,6 +116,14 @@ export function EstimateLineItemRow({
     <tr className="border-b border-zinc-100 dark:border-zinc-800">
       <td className="px-2 py-2 text-sm">
         {item.description}
+        {item.needsMeasurement && (
+          <span
+            title="No quantity was given for this item, so it's priced at $0 - enter a real measurement."
+            className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-950 dark:text-red-300"
+          >
+            Needs measurement
+          </span>
+        )}
         {item.aiEstimated && (
           <span
             title={item.aiConfidenceNote ?? "AI-estimated cost"}

@@ -157,6 +157,7 @@ model EstimateLineItem {
   clientPrice    Decimal  @db.Decimal(12, 2)
   aiEstimated    Boolean  @default(false)
   aiConfidenceNote String?
+  needsMeasurement Boolean @default(false)
   sortOrder      Int      @default(0)
 
   estimate   Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)

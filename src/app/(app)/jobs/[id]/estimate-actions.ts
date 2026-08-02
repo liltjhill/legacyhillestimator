@@ -16,6 +16,38 @@ import { getAnthropicClient, COST_ESTIMATION_MODEL } from "@/lib/anthropic";
 const SMALL_CATALOG_THRESHOLD = 150;
 const CANDIDATES_PER_SCOPE_ITEM = 12;
 
+// Units where a quantity of "1" is a real, plausible default (you really do
+// just want one of it). Anything else - sq ft, linear ft, hours, cu yd, etc.
+// - has to come from an actual measurement, so a scope item with no
+// explicit quantity gets flagged instead of silently priced as if it were 1.
+const COUNT_LIKE_UNITS = new Set([
+  "each",
+  "ea",
+  "piece",
+  "pieces",
+  "unit",
+  "units",
+  "item",
+  "items",
+  "job",
+  "lump sum",
+  "ls",
+  "set",
+  "kit",
+  "fixture",
+  "fixtures",
+  "$",
+  "dollar",
+  "dollars",
+  "allowance",
+]);
+
+function isMeasuredUnit(unit: string | null | undefined): boolean {
+  const normalized = unit?.trim().toLowerCase();
+  if (!normalized) return false;
+  return !COUNT_LIKE_UNITS.has(normalized);
+}
+
 type PriceListCandidate = {
   id: string;
   name: string;
@@ -227,7 +259,6 @@ export async function generateEstimate(jobId: string) {
 
   const lineItemsData = job.scopeItems.map((scopeItem, index) => {
     const result = resultByScopeId.get(scopeItem.id);
-    const quantity = scopeItem.quantity ? Number(scopeItem.quantity) : 1;
 
     let materialCost: number;
     let laborCost: number;
@@ -250,6 +281,11 @@ export async function generateEstimate(jobId: string) {
       aiConfidenceNote = result?.aiConfidenceNote ?? "AI-estimated cost - please verify.";
     }
 
+    const effectiveUnit = scopeItem.unit ?? matched?.unit ?? null;
+    const hasExplicitQuantity = scopeItem.quantity != null;
+    const needsMeasurement = !hasExplicitQuantity && isMeasuredUnit(effectiveUnit);
+    const quantity = hasExplicitQuantity ? Number(scopeItem.quantity) : needsMeasurement ? 0 : 1;
+
     const lineTotal = (materialCost + laborCost) * quantity;
     const clientPrice = lineTotal * (1 + markupPct / 100);
 
@@ -260,13 +296,14 @@ export async function generateEstimate(jobId: string) {
     return {
       description: scopeItem.room ? `${scopeItem.room}: ${scopeItem.description}` : scopeItem.description,
       quantity,
-      unit: scopeItem.unit,
+      unit: effectiveUnit,
       materialCost,
       laborCost,
       markupPct,
       clientPrice,
       aiEstimated,
       aiConfidenceNote,
+      needsMeasurement,
       sortOrder: index,
       scopeItemId: scopeItem.id,
       priceListItemId,
@@ -355,6 +392,7 @@ export async function updateEstimateLineItem(
       clientPrice,
       aiEstimated: false,
       aiConfidenceNote: null,
+      needsMeasurement: false,
     },
   });
 
