@@ -2,9 +2,85 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/dal";
 import { getAnthropicClient, COST_ESTIMATION_MODEL } from "@/lib/anthropic";
+
+// Below this catalog size, just send the AI everything - full context beats
+// search narrowing when there isn't much to narrow. Above it (e.g. after
+// importing a several-thousand-item cost database), sending the entire
+// catalog on every "Generate estimate" click stops being feasible (prompt
+// size, latency, cost), so each scope item instead gets its own shortlist
+// of likely-relevant candidates via Postgres full-text search.
+const SMALL_CATALOG_THRESHOLD = 150;
+const CANDIDATES_PER_SCOPE_ITEM = 12;
+
+type PriceListCandidate = {
+  id: string;
+  name: string;
+  category: string | null;
+  unit: string;
+  materialCost: number;
+  laborCost: number;
+};
+
+/**
+ * Builds an OR'd tsquery string ("word1 | word2 | ...") from free text.
+ * plainto_tsquery ANDs every term together, which almost never matches
+ * anything once the search text mixes a room name, a full description, and
+ * a category ("Primary Bath Replace toilet Plumbing" requires "bath" to
+ * appear verbatim, but the catalog says "Bathroom" - different stem, zero
+ * results). OR semantics let ts_rank do the work of surfacing the rows that
+ * match the most/best terms instead.
+ */
+function toOrTsQuery(text: string): string {
+  const words = Array.from(
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2),
+    ),
+  );
+  return words.join(" | ");
+}
+
+async function searchPriceListCandidates(searchText: string): Promise<PriceListCandidate[]> {
+  const tsQuery = toOrTsQuery(searchText);
+  if (!tsQuery) return [];
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      name: string;
+      category: string | null;
+      unit: string;
+      materialCost: Prisma.Decimal;
+      laborCost: Prisma.Decimal;
+    }>
+  >`
+    SELECT id, name, category, unit, "materialCost", "laborCost"
+    FROM "PriceListItem"
+    WHERE to_tsvector('english', name || ' ' || coalesce(category, ''))
+          @@ to_tsquery('english', ${tsQuery})
+    ORDER BY ts_rank(
+      to_tsvector('english', name || ' ' || coalesce(category, '')),
+      to_tsquery('english', ${tsQuery})
+    ) DESC
+    LIMIT ${CANDIDATES_PER_SCOPE_ITEM}
+  `;
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    unit: r.unit,
+    materialCost: Number(r.materialCost),
+    laborCost: Number(r.laborCost),
+  }));
+}
 
 const PRICE_SCOPE_TOOL = {
   name: "price_scope_items",
@@ -73,44 +149,64 @@ export async function generateEstimate(jobId: string) {
     throw new Error("Add scope items before generating an estimate.");
   }
 
-  const priceList = await prisma.priceListItem.findMany();
   const settings = await prisma.settings.findFirst();
   const markupPct = job.markupPct ? Number(job.markupPct) : Number(settings?.defaultMarkupPct ?? 20);
+
+  const catalogSize = await prisma.priceListItem.count();
+  const wholeCatalog =
+    catalogSize > 0 && catalogSize <= SMALL_CATALOG_THRESHOLD
+      ? (
+          await prisma.priceListItem.findMany()
+        ).map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          unit: p.unit,
+          materialCost: Number(p.materialCost),
+          laborCost: Number(p.laborCost),
+        }))
+      : null;
+
+  const scopeItemsWithCandidates = await Promise.all(
+    job.scopeItems.map(async (s) => {
+      const candidates =
+        wholeCatalog ??
+        (await searchPriceListCandidates(
+          [s.room, s.description, s.category].filter(Boolean).join(" "),
+        ));
+      return { scopeItem: s, candidates };
+    }),
+  );
+
+  const priceListById = new Map<string, PriceListCandidate>();
+  for (const { candidates } of scopeItemsWithCandidates) {
+    for (const c of candidates) priceListById.set(c.id, c);
+  }
 
   const client = getAnthropicClient();
   const message = await client.messages.create({
     model: COST_ESTIMATION_MODEL,
     max_tokens: 4096,
     system:
-      "You are a remodeling estimator's pricing assistant. You are given a contractor's price list " +
-      "catalog and a job's scope-of-work items. For each scope item, decide whether an existing " +
-      "catalog item is a genuinely good match (same task or material) - only match when confident. " +
-      "Otherwise provide your own realistic unit cost estimate for typical US remodeling costs. " +
-      "Use the price_scope_items tool to report every scope item exactly once.",
+      "You are a remodeling estimator's pricing assistant. Each scope item comes with a shortlist " +
+      "of candidate price list catalog items (may be empty). Decide whether one is a genuinely good " +
+      "match (same task or material) - only match when confident, don't force a match from a weak " +
+      "shortlist. Otherwise provide your own realistic unit cost estimate for typical US remodeling " +
+      "costs. Use the price_scope_items tool to report every scope item exactly once.",
     messages: [
       {
         role: "user",
-        content:
-          `Price list catalog:\n${JSON.stringify(
-            priceList.map((p) => ({
-              id: p.id,
-              name: p.name,
-              category: p.category,
-              unit: p.unit,
-              materialCost: Number(p.materialCost),
-              laborCost: Number(p.laborCost),
-            })),
-          )}\n\n` +
-          `Scope items to price:\n${JSON.stringify(
-            job.scopeItems.map((s) => ({
-              id: s.id,
-              room: s.room,
-              description: s.description,
-              quantity: s.quantity ? Number(s.quantity) : null,
-              unit: s.unit,
-              category: s.category,
-            })),
-          )}`,
+        content: `Scope items to price, each with its candidate catalog matches:\n${JSON.stringify(
+          scopeItemsWithCandidates.map(({ scopeItem: s, candidates }) => ({
+            id: s.id,
+            room: s.room,
+            description: s.description,
+            quantity: s.quantity ? Number(s.quantity) : null,
+            unit: s.unit,
+            category: s.category,
+            candidates,
+          })),
+        )}`,
       },
     ],
     tools: [PRICE_SCOPE_TOOL],
@@ -124,7 +220,6 @@ export async function generateEstimate(jobId: string) {
 
   const parsed = z.object({ results: z.array(PriceResultSchema) }).parse(toolUse.input);
   const resultByScopeId = new Map(parsed.results.map((r) => [r.scopeItemId, r]));
-  const priceListById = new Map(priceList.map((p) => [p.id, p]));
 
   let materialSubtotal = 0;
   let laborSubtotal = 0;

@@ -115,6 +115,10 @@ model PriceListItem {
   materialCost Decimal  @db.Decimal(10, 2)
   laborCost    Decimal  @db.Decimal(10, 2)
   notes        String?
+  // Source system's item code (e.g. Clear Estimates "PART CODE"), used to
+  // make bulk imports idempotent - re-importing the same catalog updates
+  // existing rows instead of duplicating them. Null for manually-added items.
+  externalCode String?  @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
