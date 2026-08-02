@@ -87,19 +87,39 @@ export async function draftScopeFromTranscript(jobId: string, transcript: string
     throw new Error("The AI didn't find any scope items in the transcript.");
   }
 
-  const existingCount = await prisma.scopeItem.count({ where: { jobId } });
+  await prisma.$transaction(async (tx) => {
+    // Regenerating replaces the previous AI draft rather than piling a new
+    // batch on top of it - only items added/edited by hand (aiDrafted:
+    // false) survive. Any priced line items pointing at the old drafted
+    // items are unlinked first so the delete doesn't hit the FK guard.
+    const staleDrafted = await tx.scopeItem.findMany({
+      where: { jobId, aiDrafted: true },
+      select: { id: true },
+    });
+    const staleIds = staleDrafted.map((s) => s.id);
 
-  await prisma.scopeItem.createMany({
-    data: parsed.items.map((item, index) => ({
-      jobId,
-      room: item.room,
-      description: item.description,
-      quantity: item.quantity ?? null,
-      unit: item.unit ?? null,
-      category: item.category ?? null,
-      aiDrafted: true,
-      sortOrder: existingCount + index,
-    })),
+    if (staleIds.length > 0) {
+      await tx.estimateLineItem.updateMany({
+        where: { scopeItemId: { in: staleIds } },
+        data: { scopeItemId: null },
+      });
+      await tx.scopeItem.deleteMany({ where: { id: { in: staleIds } } });
+    }
+
+    const existingCount = await tx.scopeItem.count({ where: { jobId } });
+
+    await tx.scopeItem.createMany({
+      data: parsed.items.map((item, index) => ({
+        jobId,
+        room: item.room,
+        description: item.description,
+        quantity: item.quantity ?? null,
+        unit: item.unit ?? null,
+        category: item.category ?? null,
+        aiDrafted: true,
+        sortOrder: existingCount + index,
+      })),
+    });
   });
 
   revalidatePath(`/jobs/${jobId}`);

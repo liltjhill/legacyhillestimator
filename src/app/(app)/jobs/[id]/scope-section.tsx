@@ -26,6 +26,7 @@ export function ScopeSection({
   const formRef = useRef<HTMLFormElement>(null);
   const [isDrafting, startDrafting] = useTransition();
   const [draftError, setDraftError] = useState<string | null>(null);
+  const hasAiDraft = scopeItems.some((item) => item.aiDrafted);
 
   return (
     <div>
@@ -34,6 +35,15 @@ export function ScopeSection({
         <button
           disabled={!transcript || isDrafting}
           onClick={() => {
+            if (
+              hasAiDraft &&
+              !confirm(
+                "This replaces the current AI-drafted scope items with a fresh draft from the transcript. " +
+                  "Manually added items are kept, but any edits to AI-drafted items will be lost. Continue?",
+              )
+            ) {
+              return;
+            }
             setDraftError(null);
             startDrafting(async () => {
               try {
@@ -45,7 +55,7 @@ export function ScopeSection({
           }}
           className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
         >
-          {isDrafting ? "Drafting..." : "Draft from transcript"}
+          {isDrafting ? "Drafting..." : hasAiDraft ? "Redraft from transcript" : "Draft from transcript"}
         </button>
       </div>
       {!transcript && (
