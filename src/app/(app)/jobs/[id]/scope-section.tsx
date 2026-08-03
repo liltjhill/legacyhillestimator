@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { createScopeItem, draftScopeFromTranscript } from "./scope-actions";
+import { createScopeItem, draftScopeFromTranscript, type PriceListSearchResult } from "./scope-actions";
 import { ScopeItemRow } from "./scope-item-row";
+import { ScopeCatalogSearch } from "./scope-catalog-search";
 
 type ScopeItem = {
   id: string;
@@ -24,9 +25,20 @@ export function ScopeSection({
   transcript: string | null;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const descriptionRef = useRef<HTMLInputElement>(null);
+  const unitRef = useRef<HTMLInputElement>(null);
+  const categoryRef = useRef<HTMLInputElement>(null);
+  const quantityRef = useRef<HTMLInputElement>(null);
   const [isDrafting, startDrafting] = useTransition();
   const [draftError, setDraftError] = useState<string | null>(null);
   const hasAiDraft = scopeItems.some((item) => item.aiDrafted);
+
+  function applyCatalogItem(item: PriceListSearchResult) {
+    if (descriptionRef.current) descriptionRef.current.value = item.name;
+    if (unitRef.current) unitRef.current.value = item.unit;
+    if (categoryRef.current) categoryRef.current.value = item.category ?? "";
+    quantityRef.current?.focus();
+  }
 
   return (
     <div>
@@ -91,24 +103,50 @@ export function ScopeSection({
         </table>
       </div>
 
+      <div className="mt-3 flex items-center justify-between">
+        <p className="text-xs text-zinc-400">
+          Search your price list to pull in a standard item, or fill in a custom one below.
+        </p>
+        <ScopeCatalogSearch onSelect={applyCatalogItem} />
+      </div>
+
       <form
         ref={formRef}
         action={async (formData) => {
           await createScopeItem(jobId, formData);
           formRef.current?.reset();
         }}
-        className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-dashed border-zinc-300 p-3 sm:grid-cols-6 dark:border-zinc-700"
+        className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-dashed border-zinc-300 p-3 sm:grid-cols-6 dark:border-zinc-700"
       >
         <input name="room" placeholder="Room" className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900" />
         <input
+          ref={descriptionRef}
           name="description"
           required
           placeholder="Description"
           className="rounded border border-zinc-300 px-2 py-1.5 text-sm sm:col-span-2 dark:border-zinc-700 dark:bg-zinc-900"
         />
-        <input name="quantity" type="number" step="0.01" min="0" placeholder="Qty" className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900" />
-        <input name="unit" placeholder="Unit" className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900" />
-        <input name="category" placeholder="Category" className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900" />
+        <input
+          ref={quantityRef}
+          name="quantity"
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder="Qty"
+          className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        />
+        <input
+          ref={unitRef}
+          name="unit"
+          placeholder="Unit"
+          className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        />
+        <input
+          ref={categoryRef}
+          name="category"
+          placeholder="Category"
+          className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        />
         <button
           type="submit"
           className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 sm:col-span-6 sm:w-fit dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"

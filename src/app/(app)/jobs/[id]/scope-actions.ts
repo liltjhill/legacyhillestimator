@@ -208,3 +208,41 @@ export async function deleteScopeItem(id: string, jobId: string) {
   await prisma.scopeItem.delete({ where: { id } });
   revalidatePath(`/jobs/${jobId}`);
 }
+
+export type PriceListSearchResult = {
+  id: string;
+  name: string;
+  category: string | null;
+  unit: string;
+  materialCost: number;
+  laborCost: number;
+};
+
+const CATALOG_SEARCH_RESULTS = 20;
+
+export async function searchPriceListForScope(query: string): Promise<PriceListSearchResult[]> {
+  await verifySession();
+
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const results = await prisma.priceListItem.findMany({
+    where: {
+      OR: [
+        { name: { contains: trimmed, mode: "insensitive" } },
+        { category: { contains: trimmed, mode: "insensitive" } },
+      ],
+    },
+    orderBy: { name: "asc" },
+    take: CATALOG_SEARCH_RESULTS,
+  });
+
+  return results.map((r) => ({
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    unit: r.unit,
+    materialCost: Number(r.materialCost),
+    laborCost: Number(r.laborCost),
+  }));
+}
