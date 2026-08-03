@@ -400,6 +400,39 @@ export async function updateEstimateLineItem(
   revalidatePath(`/jobs/${jobId}`);
 }
 
+const QuantityUpdateSchema = z.object({
+  quantity: z.coerce.number().min(0),
+});
+
+export async function updateEstimateLineItemQuantity(
+  id: string,
+  estimateId: string,
+  jobId: string,
+  quantity: number,
+) {
+  await verifySession();
+
+  const parsed = QuantityUpdateSchema.parse({ quantity });
+
+  const item = await prisma.estimateLineItem.findUniqueOrThrow({ where: { id } });
+  const clientPrice =
+    (Number(item.materialCost) + Number(item.laborCost)) *
+    parsed.quantity *
+    (1 + Number(item.markupPct) / 100);
+
+  await prisma.estimateLineItem.update({
+    where: { id },
+    data: {
+      quantity: parsed.quantity,
+      clientPrice,
+      needsMeasurement: false,
+    },
+  });
+
+  await recomputeEstimateTotals(estimateId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
 export async function deleteEstimateLineItem(id: string, estimateId: string, jobId: string) {
   await verifySession();
   await prisma.estimateLineItem.delete({ where: { id } });
