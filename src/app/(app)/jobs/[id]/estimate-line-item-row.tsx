@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import {
   updateEstimateLineItem,
-  updateEstimateLineItemQuantity,
+  updateEstimateLineItemPrice,
   deleteEstimateLineItem,
 } from "./estimate-actions";
 
@@ -31,28 +31,28 @@ export function EstimateLineItemRow({
   jobId: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const [quantityInput, setQuantityInput] = useState(String(item.quantity));
-  const [isSavingQuantity, startSavingQuantity] = useTransition();
+  const [priceInput, setPriceInput] = useState(item.clientPrice.toFixed(2));
+  const [isSavingPrice, startSavingPrice] = useTransition();
 
-  // Reset the input if the server's quantity changes for a reason other than
+  // Reset the input if the server's price changes for a reason other than
   // this input's own edit (e.g. a full-form edit, or a fresh regenerate) -
   // adjusting state during render instead of an effect, per React's guidance
   // for resetting state from props.
-  const [syncedQuantity, setSyncedQuantity] = useState(item.quantity);
-  if (item.quantity !== syncedQuantity) {
-    setSyncedQuantity(item.quantity);
-    setQuantityInput(String(item.quantity));
+  const [syncedPrice, setSyncedPrice] = useState(item.clientPrice);
+  if (item.clientPrice !== syncedPrice) {
+    setSyncedPrice(item.clientPrice);
+    setPriceInput(item.clientPrice.toFixed(2));
   }
 
-  function commitQuantity() {
-    const parsed = Number(quantityInput);
+  function commitPrice() {
+    const parsed = Number(priceInput);
     if (!Number.isFinite(parsed) || parsed < 0) {
-      setQuantityInput(String(item.quantity));
+      setPriceInput(item.clientPrice.toFixed(2));
       return;
     }
-    if (parsed === item.quantity) return;
-    startSavingQuantity(async () => {
-      await updateEstimateLineItemQuantity(item.id, estimateId, jobId, parsed);
+    if (parsed === item.clientPrice) return;
+    startSavingPrice(async () => {
+      await updateEstimateLineItemPrice(item.id, estimateId, jobId, parsed);
     });
   }
 
@@ -165,25 +165,27 @@ export function EstimateLineItemRow({
         )}
       </td>
       <td className="px-2 py-2 text-sm text-zinc-500">
+        {item.quantity} {item.unit ?? ""}
+      </td>
+      <td className="px-2 py-2 text-sm font-medium">
+        $
         <input
           type="number"
           step="0.01"
           min="0"
-          value={quantityInput}
-          disabled={isSavingQuantity}
-          onChange={(e) => setQuantityInput(e.target.value)}
-          onBlur={commitQuantity}
+          value={priceInput}
+          disabled={isSavingPrice}
+          onChange={(e) => setPriceInput(e.target.value)}
+          onBlur={commitPrice}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
               (e.target as HTMLInputElement).blur();
             }
           }}
-          className="w-16 rounded border border-zinc-300 px-1.5 py-1 text-sm disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
-        />{" "}
-        {item.unit ?? ""}
+          className="w-20 rounded border border-zinc-300 px-1.5 py-1 text-sm disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+        />
       </td>
-      <td className="px-2 py-2 text-sm font-medium">${item.clientPrice.toFixed(2)}</td>
       <td className="px-2 py-2 text-right text-sm">
         <button
           onClick={() => setEditing(true)}

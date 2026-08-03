@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { updateScopeItem, deleteScopeItem } from "./scope-actions";
+import { useState, useTransition } from "react";
+import { updateScopeItem, updateScopeItemQuantity, deleteScopeItem } from "./scope-actions";
 
 type ScopeItem = {
   id: string;
@@ -13,8 +13,43 @@ type ScopeItem = {
   aiDrafted: boolean;
 };
 
+function quantityToInput(quantity: number | null) {
+  return quantity != null ? String(quantity) : "";
+}
+
 export function ScopeItemRow({ item, jobId }: { item: ScopeItem; jobId: string }) {
   const [editing, setEditing] = useState(false);
+  const [quantityInput, setQuantityInput] = useState(quantityToInput(item.quantity));
+  const [isSavingQuantity, startSavingQuantity] = useTransition();
+
+  // Reset the input if the server's quantity changes for a reason other than
+  // this input's own edit - adjusting state during render instead of an
+  // effect, per React's guidance for resetting state from props.
+  const [syncedQuantity, setSyncedQuantity] = useState(item.quantity);
+  if (item.quantity !== syncedQuantity) {
+    setSyncedQuantity(item.quantity);
+    setQuantityInput(quantityToInput(item.quantity));
+  }
+
+  function commitQuantity() {
+    const trimmed = quantityInput.trim();
+    if (trimmed === "") {
+      if (item.quantity === null) return;
+      startSavingQuantity(async () => {
+        await updateScopeItemQuantity(item.id, jobId, null);
+      });
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setQuantityInput(quantityToInput(item.quantity));
+      return;
+    }
+    if (parsed === item.quantity) return;
+    startSavingQuantity(async () => {
+      await updateScopeItemQuantity(item.id, jobId, parsed);
+    });
+  }
 
   if (editing) {
     return (
@@ -94,7 +129,24 @@ export function ScopeItemRow({ item, jobId }: { item: ScopeItem; jobId: string }
         )}
       </td>
       <td className="px-2 py-2 text-sm text-zinc-500">
-        {item.quantity ?? ""} {item.unit ?? ""}
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder="Qty"
+          value={quantityInput}
+          disabled={isSavingQuantity}
+          onChange={(e) => setQuantityInput(e.target.value)}
+          onBlur={commitQuantity}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          className="w-16 rounded border border-zinc-300 px-1.5 py-1 text-sm disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+        />{" "}
+        {item.unit ?? ""}
       </td>
       <td className="px-2 py-2 text-sm text-zinc-500">{item.category ?? "—"}</td>
       <td className="px-2 py-2 text-right text-sm">

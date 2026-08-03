@@ -186,6 +186,23 @@ export async function updateScopeItem(id: string, jobId: string, formData: FormD
   revalidatePath(`/jobs/${jobId}`);
 }
 
+const ScopeQuantityUpdateSchema = z.object({
+  quantity: z.number().min(0).nullable(),
+});
+
+export async function updateScopeItemQuantity(id: string, jobId: string, quantity: number | null) {
+  await verifySession();
+
+  const parsed = ScopeQuantityUpdateSchema.parse({ quantity });
+
+  await prisma.scopeItem.update({
+    where: { id },
+    data: { quantity: parsed.quantity },
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+}
+
 export async function deleteScopeItem(id: string, jobId: string) {
   await verifySession();
   await prisma.scopeItem.delete({ where: { id } });
