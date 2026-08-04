@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { createScopeItem, draftScopeFromTranscript, type PriceListSearchResult } from "./scope-actions";
 import { ScopeItemRow } from "./scope-item-row";
 import { ScopeCatalogSearch } from "./scope-catalog-search";
+import { ApplyTemplateModal } from "./apply-template-modal";
 
 type ScopeItem = {
   id: string;
@@ -15,14 +16,18 @@ type ScopeItem = {
   aiDrafted: boolean;
 };
 
+type TemplateOption = { id: string; title: string; unitType: string };
+
 export function ScopeSection({
   jobId,
   scopeItems,
   transcript,
+  templates,
 }: {
   jobId: string;
   scopeItems: ScopeItem[];
   transcript: string | null;
+  templates: TemplateOption[];
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const descriptionRef = useRef<HTMLInputElement>(null);
@@ -42,33 +47,36 @@ export function ScopeSection({
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Scope of work</h2>
-        <button
-          disabled={!transcript || isDrafting}
-          onClick={() => {
-            if (
-              hasAiDraft &&
-              !confirm(
-                "This replaces the current AI-drafted scope items with a fresh draft from the transcript. " +
-                  "Manually added items are kept, but any edits to AI-drafted items will be lost. Continue?",
-              )
-            ) {
-              return;
-            }
-            setDraftError(null);
-            startDrafting(async () => {
-              try {
-                await draftScopeFromTranscript(jobId, transcript ?? "");
-              } catch (error) {
-                setDraftError(error instanceof Error ? error.message : "Failed to draft scope.");
+        <div className="flex items-center gap-2">
+          <ApplyTemplateModal jobId={jobId} templates={templates} />
+          <button
+            disabled={!transcript || isDrafting}
+            onClick={() => {
+              if (
+                hasAiDraft &&
+                !confirm(
+                  "This replaces the current AI-drafted scope items with a fresh draft from the transcript. " +
+                    "Manually added items are kept, but any edits to AI-drafted items will be lost. Continue?",
+                )
+              ) {
+                return;
               }
-            });
-          }}
-          className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          {isDrafting ? "Drafting..." : hasAiDraft ? "Redraft from transcript" : "Draft from transcript"}
-        </button>
+              setDraftError(null);
+              startDrafting(async () => {
+                try {
+                  await draftScopeFromTranscript(jobId, transcript ?? "");
+                } catch (error) {
+                  setDraftError(error instanceof Error ? error.message : "Failed to draft scope.");
+                }
+              });
+            }}
+            className="rounded border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            {isDrafting ? "Drafting..." : hasAiDraft ? "Redraft from transcript" : "Draft from transcript"}
+          </button>
+        </div>
       </div>
       {!transcript && (
         <p className="mt-1 text-xs text-zinc-400">

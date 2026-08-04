@@ -18,19 +18,25 @@ export default async function JobDetailPage({
 }) {
   const { id } = await params;
 
-  const job = await prisma.job.findUnique({
-    where: { id },
-    include: {
-      client: true,
-      siteVisits: { orderBy: { createdAt: "asc" } },
-      scopeItems: { orderBy: { sortOrder: "asc" } },
-      estimates: {
-        orderBy: { version: "desc" },
-        take: 1,
-        include: { lineItems: { orderBy: { sortOrder: "asc" } } },
+  const [job, templates] = await Promise.all([
+    prisma.job.findUnique({
+      where: { id },
+      include: {
+        client: true,
+        siteVisits: { orderBy: { createdAt: "asc" } },
+        scopeItems: { orderBy: { sortOrder: "asc" } },
+        estimates: {
+          orderBy: { version: "desc" },
+          take: 1,
+          include: { lineItems: { orderBy: { sortOrder: "asc" } } },
+        },
       },
-    },
-  });
+    }),
+    prisma.template.findMany({
+      orderBy: { title: "asc" },
+      select: { id: true, title: true, unitType: true },
+    }),
+  ]);
 
   if (!job) notFound();
 
@@ -90,6 +96,7 @@ export default async function JobDetailPage({
             aiDrafted: s.aiDrafted,
           }))}
           transcript={latestSiteVisit?.transcript ?? null}
+          templates={templates}
         />
 
         <EstimateSection

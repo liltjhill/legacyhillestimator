@@ -127,6 +127,41 @@ model PriceListItem {
   @@index([category])
 }
 
+model Template {
+  id          String   @id @default(cuid())
+  title       String   @unique
+  description String?
+  // What the scaling fields below are measured against, e.g. "Sq. Foot" -
+  // shown as the input label when applying this template to a job.
+  unitType    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lineItems TemplateLineItem[]
+}
+
+model TemplateLineItem {
+  id          String  @id @default(cuid())
+  category    String?
+  description String
+  // Source system's part code (e.g. Clear Estimates "SUPPLIER CODE"), kept
+  // for reference only - it doesn't resolve against our own price list,
+  // which is matched by description at estimate time instead.
+  supplierCode String?
+  // Quantity for a given job size = fixedUnits + unitsPerPiece * size +
+  // (unitEveryXPieces > 0 ? size / unitEveryXPieces : 0). Clear Estimates
+  // templates only ever populate one of the latter two per line.
+  fixedUnits       Decimal @default(0) @db.Decimal(12, 4)
+  unitsPerPiece    Decimal @default(0) @db.Decimal(12, 4)
+  unitEveryXPieces Decimal @default(0) @db.Decimal(12, 4)
+  sortOrder        Int     @default(0)
+
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId String
+
+  @@index([templateId])
+}
+
 model Estimate {
   id          String   @id @default(cuid())
   version     Int      @default(1)

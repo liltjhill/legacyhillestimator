@@ -246,3 +246,97 @@ export async function searchPriceListForScope(query: string): Promise<PriceListS
     laborCost: Number(r.laborCost),
   }));
 }
+
+const TemplateSizeSchema = z.object({
+  size: z.coerce.number().positive(),
+});
+
+// Only one of unitsPerPiece/unitEveryXPieces is ever populated per line in
+// Clear Estimates templates, but the formula stays additive either way.
+function computeTemplateLineQuantity(
+  fixedUnits: number,
+  unitsPerPiece: number,
+  unitEveryXPieces: number,
+  size: number,
+): number {
+  const scaled = unitsPerPiece * size + (unitEveryXPieces > 0 ? size / unitEveryXPieces : 0);
+  return Math.round((fixedUnits + scaled) * 100) / 100;
+}
+
+export type TemplatePreviewLineItem = {
+  category: string | null;
+  description: string;
+  quantity: number;
+};
+
+export async function previewTemplateApplication(
+  templateId: string,
+  size: number,
+): Promise<{ items: TemplatePreviewLineItem[]; skippedCount: number }> {
+  await verifySession();
+
+  const { size: validSize } = TemplateSizeSchema.parse({ size });
+
+  const template = await prisma.template.findUniqueOrThrow({
+    where: { id: templateId },
+    include: { lineItems: { orderBy: { sortOrder: "asc" } } },
+  });
+
+  const computed = template.lineItems.map((item) => ({
+    category: item.category,
+    description: item.description,
+    quantity: computeTemplateLineQuantity(
+      Number(item.fixedUnits),
+      Number(item.unitsPerPiece),
+      Number(item.unitEveryXPieces),
+      validSize,
+    ),
+  }));
+
+  const items = computed.filter((item) => item.quantity > 0);
+  return { items, skippedCount: computed.length - items.length };
+}
+
+export async function applyTemplateToJob(jobId: string, templateId: string, size: number) {
+  await verifySession();
+
+  const { size: validSize } = TemplateSizeSchema.parse({ size });
+
+  const template = await prisma.template.findUniqueOrThrow({
+    where: { id: templateId },
+    include: { lineItems: { orderBy: { sortOrder: "asc" } } },
+  });
+
+  const toCreate = template.lineItems
+    .map((item) => ({
+      category: item.category,
+      description: item.description,
+      quantity: computeTemplateLineQuantity(
+        Number(item.fixedUnits),
+        Number(item.unitsPerPiece),
+        Number(item.unitEveryXPieces),
+        validSize,
+      ),
+    }))
+    .filter((item) => item.quantity > 0);
+
+  if (toCreate.length === 0) {
+    throw new Error("This template produced no items at that size.");
+  }
+
+  const existingCount = await prisma.scopeItem.count({ where: { jobId } });
+
+  // No aiDrafted flag here - these are deliberately chosen, not AI output,
+  // so "Redraft from transcript" won't wipe them out later.
+  await prisma.scopeItem.createMany({
+    data: toCreate.map((item, index) => ({
+      jobId,
+      description: item.description,
+      quantity: item.quantity,
+      category: item.category,
+      sortOrder: existingCount + index,
+    })),
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+}
